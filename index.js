@@ -5,29 +5,44 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/scrape', async (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.status(400).send('Falta parámetro url');
-
+  let browser;
   try {
-    const browser = await puppeteer.launch({
-      headless: true,
+    browser = await puppeteer.launch({
+      executablePath: '/usr/bin/google-chrome', // Chrome ya instalado en Render
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
+
     const page = await browser.newPage();
+
+    // Aquí pones la URL que quieres scrapear
+    const url = req.query.url;
+    if (!url) {
+      return res.status(400).send('Falta parámetro url');
+    }
+
     await page.goto(url, { waitUntil: 'networkidle2' });
 
-    // Aquí haces el scraping que necesites, por ejemplo:
-    const content = await page.content();
+    // Ejemplo: obtener todos los enlaces de video en la página
+    const videos = await page.evaluate(() => {
+      // Cambia este selector según la web que scrapees
+      const links = Array.from(document.querySelectorAll('a'));
+      return links
+        .map(a => a.href)
+        .filter(href => href && href.match(/\.(mp4|webm|ogg)$/));
+    });
 
-    await browser.close();
+    res.json({ videos });
 
-    res.send(content);
-  } catch (err) {
-    console.error('Error scraping:', err);
-    res.status(500).send('Error interno en el scraper');
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Error scraping');
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server escuchando en puerto ${PORT}`);
 });
