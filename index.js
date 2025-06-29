@@ -5,44 +5,47 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/scrape', async (req, res) => {
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/google-chrome', // Chrome ya instalado en Render
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'No URL provided' });
 
+  try {
+    const browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      headless: true,
+    });
     const page = await browser.newPage();
 
-    // Aquí pones la URL que quieres scrapear
-    const url = req.query.url;
-    if (!url) {
-      return res.status(400).send('Falta parámetro url');
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    // Espera para que redirecciones se completen
+    await page.waitForTimeout(5000);
+
+    const finalUrl = page.url();
+
+    if (finalUrl !== url) {
+      await page.goto(finalUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     }
 
-    await page.goto(url, { waitUntil: 'networkidle2' });
+    const videoLink = await page.evaluate(() => {
+      const video = document.querySelector('video');
+      if (video) return video.src;
 
-    // Ejemplo: obtener todos los enlaces de video en la página
-    const videos = await page.evaluate(() => {
-      // Cambia este selector según la web que scrapees
-      const links = Array.from(document.querySelectorAll('a'));
-      return links
-        .map(a => a.href)
-        .filter(href => href && href.match(/\.(mp4|webm|ogg)$/));
+      const source = document.querySelector('video source');
+      return source ? source.src : null;
     });
 
-    res.json({ videos });
+    await browser.close();
 
-  } catch (error) {
-    console.error(error);
-    res.status(500).send('Error scraping');
-  } finally {
-    if (browser) {
-      await browser.close();
+    if (!videoLink) {
+      return res.status(404).json({ error: 'No video found on page' });
     }
+
+    res.json({ videoLink });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server escuchando en puerto ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
